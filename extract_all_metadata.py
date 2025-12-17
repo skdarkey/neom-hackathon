@@ -9,15 +9,19 @@ from PIL import Image
 import shapely
 from shapely.geometry import shape
 from shapely.errors import GeometryTypeError
-from datetime import date
+from datetime import datetime
+from PIL import Image, ExifTags
+import logging
+import warnings
 
-# Global Vars
+
+# Global Vars and Paths
 ROOT_DIRS = [r'D:\NEOM_PROJECT']
-DOCUMENTS_TO_PROCESS = ["GEODATABASES", "SHAPEFILES", "CSV AND EXCEL", "IMAGES"]
-OUTPUT_GDB_METADATA_CSV = r'C:\PERSONAL\UK PHD\NEOM_PROJECT\gdb_layer_metadata1.csv'
-OUTPUT_SHP_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\shp_layer_metadata1.csv"
-OUTPUT_IMGS_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\imgages_layer_metadata1.csv"
-OUTPUT_CSV_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\csv_xlsx_tables_metadata1.csv"
+DOCUMENTS_TO_PROCESS = ["GEODATABASES", "SHAPEFILES", "CSV AND EXCEL", "IMAGES"]  # edit based on document of interest
+OUTPUT_GDB_METADATA_CSV = r'C:\PERSONAL\UK PHD\NEOM_PROJECT\gdb_layer_metadata.csv'
+OUTPUT_SHP_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\shp_layer_metadata.csv"
+OUTPUT_IMGS_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\imgages_layer_metadata.csv"
+OUTPUT_CSV_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\csv_xlsx_tables_metadata.csv"
 
 #  Lists to be used in organising the metadata
 SPECIES_TYPES = ["Corals", "Dugong", "Turtles", "Flying Fish", "Flora And Fauna", "Bird", "Cetaceans"]
@@ -26,12 +30,25 @@ IMAGES_EXTENSTIONS = ['.png', '.jpg','.cr2', 'gif', 'bmp', '.tif', 'webp', '.hei
 DATE_COLUMNS = ["Timestamp", "Date_", "StartDate", "EndDate"]
 SHAPEFILES_EXTENSIONS = ['.shp', '.gpkg']
 CSV_EXCEL_EXTENSIONS = ['.csv', '.xlsx', '.xls']
-
 CRS = '32636'   # The CRS for Neom region
 
 
-### All helper functions ###
+# logging all warnings for future debugging
+LOG_FILE = "process_warnings.log"
 
+logging.basicConfig(
+    filename=LOG_FILE,
+    filemode="w",
+    level=logging.WARNING,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+# Redirect warnings to logging
+logging.captureWarnings(True)
+# silence console output
+warnings.simplefilter("default")
+
+
+### All helper functions ###
 # functions to return geodatabase / files paths in list 
 def get_geodbs_to_list(root_dirs, files_endwith='gdb'):
     """This function walks through directories and grabs all geodatabases"""
@@ -109,7 +126,8 @@ def find_match(values, parts):
 # function to extract layers meta data
 def extract_gdb_layer_metadata(
     layers_df,
-    output_csv
+    output_csv,
+    crs=CRS
 ):
     """
     Reads geodatabase layers and extracts metadata safely.
@@ -130,7 +148,8 @@ def extract_gdb_layer_metadata(
 
     records = []
 
-    for idx, row in layers_df.iterrows():
+    # for idx, row in layers_df.iterrows():
+    for idx, row in tqdm(layers_df.iterrows(), total=len(layers_df), desc="Processing layers"):
         gdb = row["geodatabase"]
         layer = row["layer"]
 
@@ -153,7 +172,7 @@ def extract_gdb_layer_metadata(
             # Reproject if geographic (degrees)
             epsg = gdf.crs.to_epsg()
             if epsg == 4326:
-                gdf = gdf.to_crs(32636)  # choose correct UTM zone
+                gdf = gdf.to_crs(crs)  # choose correct UTM zone
 
             # Clean invalid geometries 
             gdf["geometry"] = gdf.geometry.make_valid()
@@ -290,7 +309,7 @@ def extract_shapefile_metadata(
 
     records = []
 
-    for shp in shp_paths:
+    for shp in tqdm(shp_paths):
 
         layer_name = os.path.splitext(os.path.basename(shp))[0]
 
@@ -314,7 +333,7 @@ def extract_shapefile_metadata(
             # ---- CRS handling ----
             epsg = gdf.crs.to_epsg()
             if epsg == 4326:
-                gdf = gdf.to_crs(CRS)  # adjust if needed
+                gdf = gdf.to_crs(crs)  
 
             # ---- Geometry cleanup ----
             gdf["geometry"] = gdf.geometry.make_valid()
@@ -426,13 +445,9 @@ def extract_table_metadata(
         Tabular metadata table
     """
 
-    import os
-    import pandas as pd
-    from datetime import datetime
-
     records = []
 
-    for file_path in table_paths:
+    for file_path in tqdm(table_paths):
 
         file_name = os.path.basename(file_path)
         name_no_ext, ext = os.path.splitext(file_name)
@@ -563,17 +578,12 @@ def extract_image_metadata(
         Image metadata table
     """
 
-    from PIL import Image, ExifTags
-    import os
-    import pandas as pd
-    from datetime import datetime
-
     records = []
 
     # Reverse EXIF tag map once
     EXIF_TAGS = {v: k for k, v in ExifTags.TAGS.items()}
 
-    for img_path in image_paths:
+    for img_path in tqdm(image_paths):
 
         file_name = os.path.basename(img_path)
         name_no_ext, ext = os.path.splitext(file_name)
@@ -647,10 +657,8 @@ def extract_image_metadata(
 
     # return meta_df
 
-
-### Entire Metadata Extraction Workflow ###
-def main():
-
+# processing geo dbs
+def process_geodatabases():
     # Get geo dbs to list
     _, gdb_paths = get_geodbs_to_list(root_dirs=ROOT_DIRS)
     
@@ -660,13 +668,14 @@ def main():
 
     # extract meta data for each geo database layer and save csv
     extract_gdb_layer_metadata(
-    lyrs_df,
-    output_csv=OUTPUT_GDB_METADATA_CSV)
+        lyrs_df,
+        output_csv=OUTPUT_GDB_METADATA_CSV)
 
     print(f"geodatabases meta data printed successfully to {OUTPUT_GDB_METADATA_CSV}")
 
-    # shapefiles
-    # check all shape files and geopackages
+# processing shapefiles
+def process_shapefiles():
+# check all shape files and geopackages
     shp_paths = get_files_to_list(ROOT_DIRS, files_endwith=SHAPEFILES_EXTENSIONS)
 
     # get shp meta data to csv
@@ -674,6 +683,8 @@ def main():
 
     print(f"shapefiles meta data printed successfully to {OUTPUT_SHP_METADATA_CSV}")
 
+# processing non spatial tabular data
+def process_csv_and_excel():
     # for CSV and EXCEL files
     csv_paths = get_files_to_list(ROOT_DIRS, files_endwith=CSV_EXCEL_EXTENSIONS)
 
@@ -682,11 +693,26 @@ def main():
 
     print(f"csv and excel files meta data printed successfully to {OUTPUT_CSV_METADATA_CSV}")
 
+# processing images
+def process_images():
     ## for images
     img_paths = get_files_to_list(ROOT_DIRS, files_endwith=IMAGES_EXTENSTIONS) 
     extract_image_metadata(img_paths, OUTPUT_IMGS_METADATA_CSV)
 
-    print(f"Image files meta data printed successfully to {OUTPUT_IMGS_METADATA_CSV}")
+    print(f"Image files meta data printed successfully to {OUTPUT_IMGS_METADATA_CSV}") 
+
+
+PROCESSORS = {
+    "GEODATABASES": process_geodatabases,
+    "SHAPEFILES": process_shapefiles,
+    "CSV AND EXCEL": process_csv_and_excel,
+    "IMAGES": process_images,
+}
+
+# Main Metadata Extraction Workflow #
+def main():
+    for item in tqdm(DOCUMENTS_TO_PROCESS, desc="Processing document types"):
+        PROCESSORS[item]()
 
 
 if __name__ =='__main__':
