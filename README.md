@@ -1,4 +1,5 @@
 # Neom Hackathon Metadata Extration code
+- Contributor: Selorm Komla Darkey (skdarkey@gmail.com)
 
 ## Download
 
