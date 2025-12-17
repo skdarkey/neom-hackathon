@@ -20,7 +20,7 @@ ROOT_DIRS = [r'D:\NEOM_PROJECT']
 DOCUMENTS_TO_PROCESS = ["GEODATABASES", "SHAPEFILES", "CSV AND EXCEL", "IMAGES"]  # edit based on document of interest
 OUTPUT_GDB_METADATA_CSV = r'C:\PERSONAL\UK PHD\NEOM_PROJECT\gdb_layer_metadata.csv'
 OUTPUT_SHP_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\shp_layer_metadata.csv"
-OUTPUT_IMGS_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\imgages_layer_metadata.csv"
+OUTPUT_IMGS_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\images_layer_metadata.csv"
 OUTPUT_CSV_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\csv_xlsx_tables_metadata.csv"
 
 #  Lists to be used in organising the metadata

@@ -4,10 +4,10 @@
 
 To develop and modify the code, clone this repository.
 
-
 ## Files
 
-- extract_geodb_metadata.ipynb      (Notebook)
+- crawl_and_classify.ipynb          (Notebook)
+- extract_all_metadata.py           (Python file)
 - requirements.txt                  (Python dependencies)
 
 ## Installation
@@ -32,12 +32,15 @@ venv\Scripts\activate
 
     pip install -r requirements.txt
 
-
 ## Run notebook to extract metadata and save csv
-
- - Open notebook 'extract_geodb_metadata.ipynb'
+ - The notebook presents a step by step workflow. It is best used for understanding the metadata extraction workflow
+ - Open notebook 'crawl_and_classify.ipynb'
  - Set paths and global variables 
- - Run all cells
+ - Run all cells to extract metadata and visualize the outputs
+
+ - The python file 'extract_all_metadata' is best used for production stage.
+ - open the file, set the root path, and paths to output csv
+ - Select the file to be processed, then run the notebook. 
 
 
 
