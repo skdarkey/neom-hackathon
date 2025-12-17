@@ -2,3 +2,4 @@ pandas
 geopandas
 xlrd==2.0.1
 fiona
+streamlit

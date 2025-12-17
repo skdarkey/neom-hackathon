@@ -15,14 +15,7 @@ import logging
 import warnings
 
 
-# Global Vars and Paths
-ROOT_DIRS = [r'D:\NEOM_PROJECT']
-DOCUMENTS_TO_PROCESS = ["GEODATABASES", "SHAPEFILES", "CSV AND EXCEL", "IMAGES"]  # edit based on document of interest
-OUTPUT_GDB_METADATA_CSV = r'C:\PERSONAL\UK PHD\NEOM_PROJECT\gdb_layer_metadata.csv'
-OUTPUT_SHP_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\shp_layer_metadata.csv"
-OUTPUT_IMGS_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\images_layer_metadata.csv"
-OUTPUT_CSV_METADATA_CSV = r"C:\PERSONAL\UK PHD\NEOM_PROJECT\csv_xlsx_tables_metadata.csv"
-
+# ---------------------------
 #  Lists to be used in organising the metadata
 SPECIES_TYPES = ["Corals", "Dugong", "Turtles", "Flying Fish", "Flora And Fauna", "Bird", "Cetaceans"]
 ACTIVITY_TYPES = ["Restoration", "Survey", "Study", "Species Management", "Species_Recovery"]
@@ -30,25 +23,140 @@ IMAGES_EXTENSTIONS = ['.png', '.jpg','.cr2', 'gif', 'bmp', '.tif', 'webp', '.hei
 DATE_COLUMNS = ["Timestamp", "Date_", "StartDate", "EndDate"]
 SHAPEFILES_EXTENSIONS = ['.shp', '.gpkg']
 CSV_EXCEL_EXTENSIONS = ['.csv', '.xlsx', '.xls']
-CRS = '32636'   # The CRS for Neom region
+CRS = '32636' 
 
+# function to find matching species and activity types
+def find_match(values, parts):
+    """This function finds matches 
+        between two sets of strings. It is used 
+        here to find species and activity types from 
+        parts of the file name.
+    I """
+    for v in values:
+        v_norm = v.lower().replace(" ", "_")
+        if any(v_norm in p.replace(" ", "_") for p in parts):
+            return v
+    return None
 
-# logging all warnings for future debugging
-LOG_FILE = "process_warnings.log"
+# function to grab all images in the directory 
+def get_files_to_list(root_dirs, files_endwith):
+    """This function walks through directories and grabs all files such as images"""
+    db_names = []
+    db_paths = []
 
-logging.basicConfig(
-    filename=LOG_FILE,
-    filemode="w",
-    level=logging.WARNING,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-# Redirect warnings to logging
-logging.captureWarnings(True)
-# silence console output
-warnings.simplefilter("default")
+    for root_dir in root_dirs:
+        for dirpath, dirnames, filenames in os.walk(root_dir):
+            for f in filenames:
+                for i in files_endwith:
+                    if f.endswith(f"{i}"):   #files_endwith
+                        file_path = os.path.join(dirpath, f)
+                        
+                        # db_names.append(name)
+                        db_paths.append(file_path)
 
+    return db_paths
 
-### All helper functions ###
+# 
+def extract_image_metadata(
+    image_paths,
+    output_csv
+):
+    """
+    Extracts metadata from image files using file system info,
+    PIL image headers, EXIF (if present), and path-based inference.
+
+    Parameters
+    ----------
+    image_paths : list[str]
+        List of full paths to image files
+    output_csv : str
+        Path to save metadata CSV
+
+    Returns
+    -------
+    pd.DataFrame
+        Image metadata table
+    """
+
+    records = []
+
+    # Reverse EXIF tag map once
+    EXIF_TAGS = {v: k for k, v in ExifTags.TAGS.items()}
+
+    for img_path in tqdm(image_paths):
+
+        file_name = os.path.basename(img_path)
+        name_no_ext, ext = os.path.splitext(file_name)
+
+        meta = {
+            "image_path": img_path,
+            "file_name": file_name,
+            "file_extension": ext.lower(),
+            "status": "success",
+            "error": None
+        }
+
+        try:
+            # ---- File system metadata ----
+            stat = os.stat(img_path)
+
+            meta["file_size_mb"] = round(stat.st_size / (1024 ** 2), 3)
+            meta["created_time"] = datetime.fromtimestamp(stat.st_ctime)
+            meta["modified_time"] = datetime.fromtimestamp(stat.st_mtime)
+
+            # ---- Path-based metadata ----
+            path_parts = img_path.split(os.sep)
+            path_parts_lower = [p.lower() for p in path_parts]
+
+            meta["Species"] = find_match(SPECIES_TYPES, path_parts_lower)
+            meta["activity"] = find_match(ACTIVITY_TYPES, path_parts_lower)
+
+            # ---- Filename-derived metadata ----
+            tokens = name_no_ext.replace("-", "_").split("_")
+            meta["filename_tokens"] = ", ".join(tokens)
+
+            # ---- Image header metadata ----
+            with Image.open(img_path) as img:
+                meta["image_format"] = img.format
+                meta["color_mode"] = img.mode
+                meta["width_px"], meta["height_px"] = img.size
+                meta["aspect_ratio"] = round(img.size[0] / img.size[1], 4)
+
+                # ---- EXIF metadata (best effort) ----
+                exif_data = img._getexif()
+                if exif_data:
+                    exif = {
+                        ExifTags.TAGS.get(tag, tag): value
+                        for tag, value in exif_data.items()
+                        if tag in ExifTags.TAGS
+                    }
+
+                    meta["has_exif"] = True
+                    meta["camera_make"] = exif.get("Make")
+                    meta["camera_model"] = exif.get("Model")
+                    meta["datetime_original"] = exif.get("DateTimeOriginal")
+                    meta["gps_info"] = "GPSInfo" in exif
+                else:
+                    meta["has_exif"] = False
+                    meta["camera_make"] = None
+                    meta["camera_model"] = None
+                    meta["datetime_original"] = None
+                    meta["gps_info"] = False
+
+        except Exception as e:
+            meta["status"] = "failed"
+            meta["error"] = str(e)
+
+        records.append(meta)
+
+    # ---- Create DataFrame ----
+    meta_df = pd.DataFrame(records)
+
+    # ---- Save CSV ----
+    meta_df.to_csv(output_csv, index=False, encoding="utf-8")
+
+    # return meta_df
+
 # functions to return geodatabase / files paths in list 
 def get_geodbs_to_list(root_dirs, files_endwith='gdb'):
     """This function walks through directories and grabs all geodatabases"""
@@ -109,19 +217,6 @@ def get_gdb_layers(gdb_paths):
     
     # return layers
     return rows
-
-# function to find matching species and activity types
-def find_match(values, parts):
-    """This function finds matches 
-        between two sets of strings. It is used 
-        here to find species and activity types from 
-        parts of the file name.
-    I """
-    for v in values:
-        v_norm = v.lower().replace(" ", "_")
-        if any(v_norm in p.replace(" ", "_") for p in parts):
-            return v
-    return None
 
 # function to extract layers meta data
 def extract_gdb_layer_metadata(
@@ -266,24 +361,6 @@ def extract_gdb_layer_metadata(
     meta_df.to_csv(output_csv, index=False, encoding="utf-8")
 
     # return meta_df
-
-# function to grab all images in the directory 
-def get_files_to_list(root_dirs, files_endwith):
-    """This function walks through directories and grabs all files such as images"""
-    db_names = []
-    db_paths = []
-
-    for root_dir in root_dirs:
-        for dirpath, dirnames, filenames in os.walk(root_dir):
-            for f in filenames:
-                for i in files_endwith:
-                    if f.endswith(f"{i}"):   #files_endwith
-                        file_path = os.path.join(dirpath, f)
-                        
-                        # db_names.append(name)
-                        db_paths.append(file_path)
-
-    return db_paths
 
 # function to extract shapefiles metadata
 def extract_shapefile_metadata(
@@ -556,107 +633,6 @@ def extract_table_metadata(
 
     # return meta_df
 
-# function to extract images metadata 
-def extract_image_metadata(
-    image_paths,
-    output_csv
-):
-    """
-    Extracts metadata from image files using file system info,
-    PIL image headers, EXIF (if present), and path-based inference.
-
-    Parameters
-    ----------
-    image_paths : list[str]
-        List of full paths to image files
-    output_csv : str
-        Path to save metadata CSV
-
-    Returns
-    -------
-    pd.DataFrame
-        Image metadata table
-    """
-
-    records = []
-
-    # Reverse EXIF tag map once
-    EXIF_TAGS = {v: k for k, v in ExifTags.TAGS.items()}
-
-    for img_path in tqdm(image_paths):
-
-        file_name = os.path.basename(img_path)
-        name_no_ext, ext = os.path.splitext(file_name)
-
-        meta = {
-            "image_path": img_path,
-            "file_name": file_name,
-            "file_extension": ext.lower(),
-            "status": "success",
-            "error": None
-        }
-
-        try:
-            # ---- File system metadata ----
-            stat = os.stat(img_path)
-
-            meta["file_size_mb"] = round(stat.st_size / (1024 ** 2), 3)
-            meta["created_time"] = datetime.fromtimestamp(stat.st_ctime)
-            meta["modified_time"] = datetime.fromtimestamp(stat.st_mtime)
-
-            # ---- Path-based metadata ----
-            path_parts = img_path.split(os.sep)
-            path_parts_lower = [p.lower() for p in path_parts]
-
-            meta["Species"] = find_match(SPECIES_TYPES, path_parts_lower)
-            meta["activity"] = find_match(ACTIVITY_TYPES, path_parts_lower)
-
-            # ---- Filename-derived metadata ----
-            tokens = name_no_ext.replace("-", "_").split("_")
-            meta["filename_tokens"] = ", ".join(tokens)
-
-            # ---- Image header metadata ----
-            with Image.open(img_path) as img:
-                meta["image_format"] = img.format
-                meta["color_mode"] = img.mode
-                meta["width_px"], meta["height_px"] = img.size
-                meta["aspect_ratio"] = round(img.size[0] / img.size[1], 4)
-
-                # ---- EXIF metadata (best effort) ----
-                exif_data = img._getexif()
-                if exif_data:
-                    exif = {
-                        ExifTags.TAGS.get(tag, tag): value
-                        for tag, value in exif_data.items()
-                        if tag in ExifTags.TAGS
-                    }
-
-                    meta["has_exif"] = True
-                    meta["camera_make"] = exif.get("Make")
-                    meta["camera_model"] = exif.get("Model")
-                    meta["datetime_original"] = exif.get("DateTimeOriginal")
-                    meta["gps_info"] = "GPSInfo" in exif
-                else:
-                    meta["has_exif"] = False
-                    meta["camera_make"] = None
-                    meta["camera_model"] = None
-                    meta["datetime_original"] = None
-                    meta["gps_info"] = False
-
-        except Exception as e:
-            meta["status"] = "failed"
-            meta["error"] = str(e)
-
-        records.append(meta)
-
-    # ---- Create DataFrame ----
-    meta_df = pd.DataFrame(records)
-
-    # ---- Save CSV ----
-    meta_df.to_csv(output_csv, index=False, encoding="utf-8")
-
-    # return meta_df
-
 # processing geo dbs
 def process_geodatabases(ROOT_DIRS,OUTPUT_GDB_METADATA_CSV):
     # Get geo dbs to list
@@ -674,7 +650,7 @@ def process_geodatabases(ROOT_DIRS,OUTPUT_GDB_METADATA_CSV):
     print(f"geodatabases meta data printed successfully to {OUTPUT_GDB_METADATA_CSV}")
 
 # processing shapefiles
-def process_shapefiles():
+def process_shapefiles(ROOT_DIRS, OUTPUT_SHP_METADATA_CSV):
 # check all shape files and geopackages
     shp_paths = get_files_to_list(ROOT_DIRS, files_endwith=SHAPEFILES_EXTENSIONS)
 
@@ -684,7 +660,7 @@ def process_shapefiles():
     print(f"shapefiles meta data printed successfully to {OUTPUT_SHP_METADATA_CSV}")
 
 # processing non spatial tabular data
-def process_csv_and_excel():
+def process_csv_and_excel(ROOT_DIRS, OUTPUT_CSV_METADATA_CSV):
     # for CSV and EXCEL files
     csv_paths = get_files_to_list(ROOT_DIRS, files_endwith=CSV_EXCEL_EXTENSIONS)
 
@@ -694,26 +670,10 @@ def process_csv_and_excel():
     print(f"csv and excel files meta data printed successfully to {OUTPUT_CSV_METADATA_CSV}")
 
 # processing images
-def process_images():
+def process_images(ROOT_DIRS, OUTPUT_IMGS_METADATA_CSV):
     ## for images
     img_paths = get_files_to_list(ROOT_DIRS, files_endwith=IMAGES_EXTENSTIONS) 
     extract_image_metadata(img_paths, OUTPUT_IMGS_METADATA_CSV)
 
     print(f"Image files meta data printed successfully to {OUTPUT_IMGS_METADATA_CSV}") 
 
-
-PROCESSORS = {
-    "GEODATABASES": process_geodatabases,
-    "SHAPEFILES": process_shapefiles,
-    "CSV AND EXCEL": process_csv_and_excel,
-    "IMAGES": process_images,
-}
-
-# Main Metadata Extraction Workflow #
-def main():
-    for item in tqdm(DOCUMENTS_TO_PROCESS, desc="Processing document types"):
-        PROCESSORS[item]()
-
-
-if __name__ =='__main__':
-    main()
